@@ -1,0 +1,26 @@
+version: 1
+project:
+  title: 化工 AI 灰箱建模
+  description: 用 HybridML 案例和现代 Keras 学习化工灰箱建模
+  keywords:
+    - 化工
+    - 灰箱模型
+    - HybridML
+    - Keras
+  toc:
+    - file: index.md
+    - title: 学习路线
+      children:
+        - file: chapters/01-greybox.md
+        - file: chapters/02-repository.ipynb
+        - file: chapters/03-cstr.ipynb
+        - file: chapters/04-next-steps.md
+        - file: chapters/05-nonisothermal-cstr.ipynb
+        - file: chapters/06-hybridml-industrial-greybox-walkthrough.ipynb
+        - file: chapters/07-industrial-greybox.md
+        - file: chapters/08-industrial-workflow.ipynb
+site:
+  template: book-theme
+  title: 化工 AI 灰箱建模
+  options:
+    folders: true

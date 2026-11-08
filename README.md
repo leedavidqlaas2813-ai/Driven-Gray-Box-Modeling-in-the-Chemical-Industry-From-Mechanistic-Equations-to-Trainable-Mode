@@ -1,125 +1,63 @@
-# HybridML - Open Source Platform for Hybrid Modeling
+# 1. 灰箱建模思路
 
-- [HybridML - Open Source Platform for Hybrid Modeling](#HybridML---Open-Source-Platform-for-Hybrid-Modeling)
-  - [Introduction](#introduction)
-  - [Technologies](#technologies)
-  - [Examples](#examples)
-  - [Project Structure](#project-structure)
-  - [Software Architecture](#software-architecture)
-    - [Creation](#creation)
-      - [1. Parsing](#1-parsing)
-      - [2. Building](#2-building)
-    - [NodeBuilder, NodeParser and Node](#nodebuilder-nodeparser-and-node)
-  - [Constructing Models](#constructing-models)
-  - [Implementing new node types](#implementing-new-node-types)
-  - [Citation](#citation)
-## Introduction
-This tool aims to create hybrid machine learning models using tensorflow and keras.
-In this context hybrid means, that the models consist of submodels that are connected in a feed forward graph.
-These submodels, called nodes are machine learning models themselves.
-We currently support neural networks, mechanistic models (formulas) and linear odes as nodes.
-It is possible to add more types of models.
-More can be found under "How to to implement new node types".
+## 三种模型
 
+设输入工况为 \(x\)，目标量为 \(y\)。
 
-## Technologies
-* tensorflow
-* casadi
-* numpy
-* matlotlib
-* tqdm
+- **机理模型（white box）**：从守恒定律、热力学或动力学方程得到 \(y=f(x;\theta)\)。结构清楚、便于解释，但参数或结构可能不完整。
+- **数据模型（black box）**：直接学习 \(y=g_\phi(x)\)。表达能力强，但在训练范围外可能不可靠。
+- **灰箱模型（grey box）**：保留可信的物理结构，再用数据估计未知参数或修正项。例如 \(y=f(x;\theta)+r_\phi(x)\)，或令机理参数依工况变化。
 
-The original HybridML implementation uses legacy TensorFlow and CasADi
-dependencies. The tutorials use a separate environment; see
-[tutorials/index.md](tutorials/index.md) before installing dependencies.
+灰箱不等于“在神经网络前后加一个公式”。关键是说明：哪些规律已知、哪些未知、数据如何约束未知部分，以及模型是否保留单位、边界和守恒关系。
 
-## Examples
-### Chemical Engineering Grey-Box Modeling Book
-The Chinese [Jupyter Book tutorial](tutorials/index.md) introduces grey-box modeling with a modern Keras CSTR example and guided tours of the repository's existing HybridML examples.
+## 建模顺序
 
-Available model description and data examples:
+1. **定义系统边界与预测目标**：明确组分、状态量、单位、时间尺度和操作变量。
+2. **写出机理方程**：例如稳态物料衡算、能量衡算或动力学 ODE。
+3. **列出不确定性**：未知速率常数、反应级数、传热系数，或方程结构误差。
+4. **选择数据驱动部分**：优先让网络估计具有物理意义的参数/速率；只有必要时才学习不受约束的输出残差。
+5. **检查可辨识性**：不同参数可能产生相似输出。训练误差小并不代表参数真实。
+6. **按工况拆分数据并验证**：分别检查训练区间内插和新工况外推，不能只报告训练误差。
 
-- [Simple model JSON](demo/simple_model.json), used in the repository tour.
-- [Theophylline model JSON](demo/theoph/projects/theoph_demo/theoph_model_2_compartments.json)
-  and its [normalized dataset](demo/theoph/projects/theoph_demo/theoph_normalized.csv),
-  also used in the repository tour.
+## 本书的 CSTR 例子
 
+考虑液相、等温、恒容的连续搅拌釜，发生不可逆一级反应 \(A\rightarrow B\)。忽略体积变化，稳态组分 A 的衡算为：
 
-## Project Structure
-HybridML can also be used with the project architecture.
-A project contains a name, one or multiple models and one or multiple datasources.
-A new model can be created by using:
-```python
-import Project
-project = Project.create(containing_dir, "project_name")
-```
-Then a file of the name `project_name.json` is created in the containing directory.
-There, new models and datasources can be added.
-To open an already existing model the method  `Project.open(project_file_path)` can be used, where `project_file_path` is the path to the formerly created `project_name.json`.
-The project class has the ability to create and load all of its models at once, using the methods `generate_models()` and `load_models()`.
-Note, that it is not necessary to state the location of the model description or the saved model file, as both are handled by the project instance.
-All models can be saved, using the `save()` method.
-The data sources can be loaded, using `load_data_sources()`, where we again don't have to state the location of the data sources, because they are handled by the project instance.
-The data sources can then be accessed via the `data_sources` propoerty, which is a list of data_sources.
+\[
+0 = \frac{C_{A0}-C_A}{\tau} - k(T)C_A,
+\qquad
+C_A = \frac{C_{A0}}{1+k(T)\tau}.
+\]
 
+其中 \(C_{A0}\) 是入口浓度，\(\tau\) 是停留时间，\(T\) 是绝对温度，\(k(T)>0\) 是反应速率常数。Arrhenius 形式为：
 
-## Software Architecture
+\[
+k(T)=k_\mathrm{ref}\exp\left[-\frac{E_a}{R}
+\left(\frac{1}{T}-\frac{1}{T_\mathrm{ref}}\right)\right].
+\]
 
-The model creation process consists of the two phases parsing and building.
-In the parsing phase, the model description file is read and loaded into memory.
-In the building phase, the parsed model is then built.
-The two phases are independant from each other.
+> 注意指数的括号：标准 Arrhenius 比值可写为
+> \(k(T)=k_\mathrm{ref}\exp[-E_a/R(1/T-1/T_\mathrm{ref})]\)。
+> 温度升高时，通常 \(k(T)\) 增大。
 
-### Creation
-The model creation process is coordinated by the `ModelCreator`.
-It has a `NodeRegistry`, which contains parsers and builders for all possible types of nodes, as well as all custom Tensorflow objects.
-Furthermore, it has a `ModelParser`, which recieves the model-json.
-The parsed output is then given to its `ModelBuilder`, which performs the final step of building the tensorflow model.
+Notebook 用已知结构预测 \(C_A\)，让一个小网络学习对 \(k(T)\) 的乘法修正。指数参数化使速率常数保持正值；训练集范围之外的效果仍需单独验证。
 
-#### 1. Parsing
-At first the simple parameters of the model, such as `name`, `mse`, `loss`, etc are parsed.
-Then the network structure of the model is parsed by an instance of `NetParser`.
-The parsing itself consists of two passes.
-In the first pass, all nodes of the network are parsed by `NodeParsers`.
-The resulting `ParsedNode`s are connected with `NodeConnors`, which are represented by variable names in the model-json.s
-In the second pass the parser walks through the network and propagates the input and output sizes of each node thorugh the `ParsedNodes` and `NodeConnectors`.
+### 用一组数字理解稳态衡算
 
-#### 2. Building
-In the first step, a `NetworkBuilder` is used to build the network.
-The tensorflow/keras functional api is used to construct the network.
-At first, `Input`s are built, which represent the `NodeConnectors`, labelled as inputs in the model description.
-Then the builder walks throught the network, building the nodes using `NodeBuilders`, and connecting them to their input tensors, and collecting all input and output tensors in a dictionary.
+假设入口浓度 \(C_{A0}=1.0\ \mathrm{mol/L}\)、停留时间 \(\tau=5\ \mathrm{min}\)，并且在当前温度下 \(k=0.1\ \mathrm{min^{-1}}\)。那么 \(k\tau=0.5\)，所以
+\[
+C_A=\frac{1.0}{1+0.5}=0.667\ \mathrm{mol/L}.
+\]
+分母里的 \(k\tau\) 是无量纲数；它表示“反应速度相对于流出速度有多强”。若把停留时间加倍到 10 min 而其他条件不变，\(k\tau=1\)，出口浓度降为 \(1/(1+1)=0.5\ \mathrm{mol/L}\)。这也说明停留时间不能从模型输入中随意省略。
 
-This parsed network is then used to build a `model` and an `additional_outputs_model`.
+若把速率乘以灰箱修正 \(\exp(\delta)\)，例如 \(\delta=\ln(1.2)\approx0.182\)，则有效速率变为原来的 1.2 倍：\(k_\mathrm{eff}=0.12\ \mathrm{min^{-1}}\)。在 \(\tau=5\) min 时，出口浓度随之变成 \(1/(1+0.12\times5)=0.625\ \mathrm{mol/L}\)。修正作用在速率上，因此出口浓度仍由守恒方程计算，而不是让网络任意输出一个浓度值。
 
+## 灰箱设计检查清单
 
-### NodeBuilder, NodeParser and Node
-For each type of node there is an implementation of each of the three classes `NodeBuilder`, `NodeParser`, `Node`.
-The parsers and builders select the correct implementation during the process.
-More on that in [How to implement new node types](create-nodes.md).
+- 量纲是否一致？每个无量纲指数必须由无量纲量构成。
+- 是否强制了必要的物理边界，例如正速率、非负浓度？
+- 数据是否覆盖了足以区分参数的工况？
+- 对照模型是否合理：至少与机理基线和纯数据模型比较。
+- 外推评估是否按工况划分，而不是随机拆分后把相邻工况放进训练集和测试集？
+- 是否保留独立实验数据来检验仿真合成数据之外的误差？
 
-
-## Constructing Models
-See [model-json.md](model-json.md).
-
-## Implementing new node types
-See [create-nodes.md](create-nodes.md).
-
-# Citation
-Our paper can be retrieved at https://doi.org/10.1016/j.compchemeng.2022.107736.
-If you use HybridML in your work, please cite our paper using the following citation.
-```bibtex
-@article{MERKELBACH2022107736,
-title = {HybridML: Open source platform for hybrid modeling},
-journal = {Computers & Chemical Engineering},
-volume = {160},
-pages = {107736},
-year = {2022},
-issn = {0098-1354},
-doi = {https://doi.org/10.1016/j.compchemeng.2022.107736},
-url = {https://www.sciencedirect.com/science/article/pii/S0098135422000771},
-author = {Kilian Merkelbach and Artur M. Schweidtmann and Younes Müller and Patrick Schwoebel and Adel Mhamdi and Alexander Mitsos and Andreas Schuppert and Thomas Mrziglod and Sebastian Schneckener},
-keywords = {Hybrid modeling, Machine learning, Modeling tools, Tensorflow, Python, Pharmacokinetics},
-abstract = {Hybrid modelling, i.e., the combination of data-driven modelling with mechanistic model components, reduces the data demand and enables extrapolation of data-driven models. However, building, training and evaluation of hybrid models is cumbersome with current frameworks. We developed HybridML, an open-source modeling platform, in which hybrid models can be trained, i.e., combinations of artificial neural networks, arithmetic expressions, and differential equations. We employ TensorFlow for artificial neural network training and Casadi to integrate ordinary differential equations and provide gradients of differential model equations enabling continuous time representations. HybridML provides also a JSON interface for the model development. We apply HybridML to an industrial case study, in which the trained model is used to predict drug concentrations over time, based on physiological information about the patients. To demonstrate its versatility, we also present a nonlinear application, where HybridML is used to model the spread of the COVID-19 pandemic in German federal states based on the state’s socio-economic attributes.}
-}
-```

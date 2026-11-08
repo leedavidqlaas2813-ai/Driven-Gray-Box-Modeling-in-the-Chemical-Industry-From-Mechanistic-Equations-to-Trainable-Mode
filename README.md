@@ -1,63 +1,55 @@
-# 1. 灰箱建模思路
+# 化工 AI 灰箱建模：从机理方程到可训练模型
 
-## 三种模型
+本书结合当前仓库 [HybridML](../README.md) 的模型描述和示例，用 Notebook 学习如何把化工机理与数据驱动模型组合起来。所有新增示例使用本地生成的数据，不需要下载数据集。
 
-设输入工况为 \(x\)，目标量为 \(y\)。
+第 7–8 章的工程实现放在仓库根目录的 [`industrial_greybox/`](../industrial_greybox/README.md) 包中，可直接用 `python -m industrial_greybox.cli --quick` 跑通端到端流程，或用 `python -m unittest discover -s industrial_greybox/tests -t .` 运行测试。
 
-- **机理模型（white box）**：从守恒定律、热力学或动力学方程得到 \(y=f(x;\theta)\)。结构清楚、便于解释，但参数或结构可能不完整。
-- **数据模型（black box）**：直接学习 \(y=g_\phi(x)\)。表达能力强，但在训练范围外可能不可靠。
-- **灰箱模型（grey box）**：保留可信的物理结构，再用数据估计未知参数或修正项。例如 \(y=f(x;\theta)+r_\phi(x)\)，或令机理参数依工况变化。
+## 学习目标
 
-灰箱不等于“在神经网络前后加一个公式”。关键是说明：哪些规律已知、哪些未知、数据如何约束未知部分，以及模型是否保留单位、边界和守恒关系。
+- 区分机理模型、纯数据模型和灰箱模型。
+- 用物料衡算建立一个 CSTR 的稳态模型。
+- 用现代 Keras API 实现可微分的机理层与数据驱动修正项。
+- 阅读 HybridML 的模型 JSON，理解神经网络、ODE 和节点连线。
+- 认识训练集内插、工况外推和实验验证的差别。
+- 把教学级代码升级为可审查的工程实现：数值稳定性、化验死时间、工业数据清洗、慢变参数与影子运行。
 
-## 建模顺序
+## 推荐学习顺序
 
-1. **定义系统边界与预测目标**：明确组分、状态量、单位、时间尺度和操作变量。
-2. **写出机理方程**：例如稳态物料衡算、能量衡算或动力学 ODE。
-3. **列出不确定性**：未知速率常数、反应级数、传热系数，或方程结构误差。
-4. **选择数据驱动部分**：优先让网络估计具有物理意义的参数/速率；只有必要时才学习不受约束的输出残差。
-5. **检查可辨识性**：不同参数可能产生相似输出。训练误差小并不代表参数真实。
-6. **按工况拆分数据并验证**：分别检查训练区间内插和新工况外推，不能只报告训练误差。
+1. 阅读[灰箱建模思路](chapters/01-greybox.md)，先熟悉模型假设和参数含义。
+2. 运行[仓库模型导读 Notebook](chapters/02-repository.ipynb)，对照现有示例理解 HybridML 的 JSON 结构。
+3. 运行[CSTR 灰箱建模 Notebook](chapters/03-cstr.ipynb)，从合成数据开始训练并比较三类模型。
+4. 按[下一步练习](chapters/04-next-steps.md)替换假设、检查外推并规划真实实验验证。
+5. 运行[非等温动态 CSTR Notebook](chapters/05-nonisothermal-cstr.ipynb)，在完整运行轨迹上比较机理、灰箱与黑箱模型。
+6. 阅读[HybridML 源码到工厂建模](chapters/06-hybridml-industrial-greybox-walkthrough.ipynb)，理解框架结构如何映射到工艺问题。
+7. 阅读[准生产级工业灰箱系统](chapters/07-industrial-greybox.md)，了解数值稳定性、时滞补偿、数据清洗、慢变参数与影子运行的工程实现（代码见 [`industrial_greybox/`](../industrial_greybox/README.md)）。
+8. 运行[准生产级灰箱系统实操](chapters/08-industrial-workflow.ipynb)，用合成 campaign 走通清洗、对齐、训练、诊断与影子运行。
 
-## 本书的 CSTR 例子
+## 环境与运行
 
-考虑液相、等温、恒容的连续搅拌釜，发生不可逆一级反应 \(A\rightarrow B\)。忽略体积变化，稳态组分 A 的衡算为：
+优先使用仓库已有的 `.conda` 环境。当前工作区没有该环境时，在仓库根目录创建一次 Python 3.12 环境（TensorFlow 官方支持 Python 3.9–3.12），之后始终复用它：
 
-\[
-0 = \frac{C_{A0}-C_A}{\tau} - k(T)C_A,
-\qquad
-C_A = \frac{C_{A0}}{1+k(T)\tau}.
-\]
+```bash
+conda create --prefix ./.conda python=3.12 pip -y  # 仅首次需要
+conda run --prefix ./.conda python -m pip install -r tutorials/requirements.txt
+```
 
-其中 \(C_{A0}\) 是入口浓度，\(\tau\) 是停留时间，\(T\) 是绝对温度，\(k(T)>0\) 是反应速率常数。Arrhenius 形式为：
+如果 `.conda` 已存在，跳过 `conda create`，只执行安装命令。安装前可用 `conda run --prefix ./.conda python --version` 检查环境。安装后打开 Notebook：
 
-\[
-k(T)=k_\mathrm{ref}\exp\left[-\frac{E_a}{R}
-\left(\frac{1}{T}-\frac{1}{T_\mathrm{ref}}\right)\right].
-\]
+```bash
+conda run --prefix ./.conda python -m jupyter lab
+```
 
-> 注意指数的括号：标准 Arrhenius 比值可写为
-> \(k(T)=k_\mathrm{ref}\exp[-E_a/R(1/T-1/T_\mathrm{ref})]\)。
-> 温度升高时，通常 \(k(T)\) 增大。
+要构建网站，进入 `tutorials/` 后运行：
 
-Notebook 用已知结构预测 \(C_A\)，让一个小网络学习对 \(k(T)\) 的乘法修正。指数参数化使速率常数保持正值；训练集范围之外的效果仍需单独验证。
+```bash
+cd tutorials
+conda run --prefix ../.conda myst build --html
+```
 
-### 用一组数字理解稳态衡算
+本书用 MyST（Jupyter Book 当前采用的工具链）构建。首次构建需要联网下载网站主题。若只想学习代码，可以直接在 JupyterLab 打开 `.ipynb` 文件。
 
-假设入口浓度 \(C_{A0}=1.0\ \mathrm{mol/L}\)、停留时间 \(\tau=5\ \mathrm{min}\)，并且在当前温度下 \(k=0.1\ \mathrm{min^{-1}}\)。那么 \(k\tau=0.5\)，所以
-\[
-C_A=\frac{1.0}{1+0.5}=0.667\ \mathrm{mol/L}.
-\]
-分母里的 \(k\tau\) 是无量纲数；它表示“反应速度相对于流出速度有多强”。若把停留时间加倍到 10 min 而其他条件不变，\(k\tau=1\)，出口浓度降为 \(1/(1+1)=0.5\ \mathrm{mol/L}\)。这也说明停留时间不能从模型输入中随意省略。
+## 关于仓库示例的依赖
 
-若把速率乘以灰箱修正 \(\exp(\delta)\)，例如 \(\delta=\ln(1.2)\approx0.182\)，则有效速率变为原来的 1.2 倍：\(k_\mathrm{eff}=0.12\ \mathrm{min^{-1}}\)。在 \(\tau=5\) min 时，出口浓度随之变成 \(1/(1+0.12\times5)=0.625\ \mathrm{mol/L}\)。修正作用在速率上，因此出口浓度仍由守恒方程计算，而不是让网络任意输出一个浓度值。
+仓库本身锁定了 TensorFlow 2.3.1 和 TensorFlow Probability 0.11.1 等旧依赖。它们不一定能安装在当前 Python 或 TensorFlow 环境中；仓库中的 `casadi_linear_ode` 也需要相应的 CasADi 依赖。因此本书把这些模型作为代码库的建模案例来讲解，而新增 CSTR Notebook 使用独立、现代的 Keras 3 API。
 
-## 灰箱设计检查清单
-
-- 量纲是否一致？每个无量纲指数必须由无量纲量构成。
-- 是否强制了必要的物理边界，例如正速率、非负浓度？
-- 数据是否覆盖了足以区分参数的工况？
-- 对照模型是否合理：至少与机理基线和纯数据模型比较。
-- 外推评估是否按工况划分，而不是随机拆分后把相邻工况放进训练集和测试集？
-- 是否保留独立实验数据来检验仿真合成数据之外的误差？
-
+请不要把教程依赖直接装进旧版 HybridML 环境中。若需要运行原始 HybridML 模型，应依据该项目的依赖文件创建单独的兼容环境。
